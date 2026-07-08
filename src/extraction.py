@@ -1,6 +1,7 @@
 import torch
 import json
 import os
+import gc
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from .utils import ContractExtractionRecord
 
@@ -28,14 +29,14 @@ class LLMExtractor:
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            max_new_tokens=1024,
+            max_new_tokens=512,  # Lowered to save VRAM; clauses rarely exceed 512 tokens
             temperature=0.1,  
             return_full_text=False
         )
         
-        # Hard limits for Kaggle T4 VRAM
-        self.chunk_size = 6000
-        self.overlap = 500
+        # Safer limits for T4 VRAM
+        self.chunk_size = 4000
+        self.overlap = 200
         
     def _chunk_tokens(self, tokens: list) -> list:
         """Slides a window across the token array to create overlapping chunks."""
@@ -66,7 +67,7 @@ Output ONLY valid JSON matching this schema:
         tokens = self.tokenizer.encode(contract_text)
         chunks = self._chunk_tokens(tokens)
         
-        print(f"      [Info] Document split into {len(chunks)} overlapping chunks.")
+        print(f"      [Info] Document split into {len(chunks)} safe overlapping chunks.")
         
         # Aggregation state
         final_summary = ""
@@ -82,7 +83,9 @@ Output ONLY valid JSON matching this schema:
                 {"role": "user", "content": f"CONTRACT TEXT CHUNK:\n\n{safe_text}\n\nExtract the requested fields in JSON format."}
             ]
 
-            outputs = self.pipe(messages)
+            with torch.no_grad():
+                outputs = self.pipe(messages)
+                
             generated_text = outputs[0]["generated_text"].strip()
             
             if generated_text.startswith("```json"):
@@ -93,22 +96,26 @@ Output ONLY valid JSON matching this schema:
             try:
                 parsed_data = json.loads(generated_text)
                 
-                # Aggregate findings: Keep the first chunk's summary (usually contains the preamble/purpose)
                 if chunk_idx == 0:
                     final_summary = parsed_data.get("summary", "")
                 
-                # If a clause is found and we don't already have one, store it
-                if parsed_data.get("termination_clause") != "NONE" and final_termination == "NONE":
+                if parsed_data.get("termination_clause", "NONE") != "NONE" and final_termination == "NONE":
                     final_termination = parsed_data["termination_clause"]
                     
-                if parsed_data.get("confidentiality_clause") != "NONE" and final_confidentiality == "NONE":
+                if parsed_data.get("confidentiality_clause", "NONE") != "NONE" and final_confidentiality == "NONE":
                     final_confidentiality = parsed_data["confidentiality_clause"]
                     
-                if parsed_data.get("liability_clause") != "NONE" and final_liability == "NONE":
+                if parsed_data.get("liability_clause", "NONE") != "NONE" and final_liability == "NONE":
                     final_liability = parsed_data["liability_clause"]
                     
             except Exception as e:
                 print(f"      [Error] JSON Parse Failure on chunk {chunk_idx}: {e}")
+
+            # INTRA-LOOP GARBAGE COLLECTION: Crucial for preventing KV Cache OOM
+            del outputs
+            del messages
+            gc.collect()
+            torch.cuda.empty_cache()
 
         return ContractExtractionRecord(
             contract_id=contract_id,
