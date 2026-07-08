@@ -82,7 +82,8 @@ def main():
     setup_environment()
     
     DATA_DIR = "data/contracts"
-    OUTPUT_FILE = "extraction_results.csv"
+    OUTPUT_CSV = "extraction_results.csv"
+    OUTPUT_JSON = "extraction_results.json"
     
     print(f"\n{Colors.BLUE}=================================================={Colors.RESET}")
     print(f"{Colors.BLUE}    CUADPIPE: DOCUMENT AI EXTRACTION ENGINE       {Colors.RESET}")
@@ -133,8 +134,16 @@ def main():
     
     print(f"{Colors.YELLOW}Serializing Structured Results to Disks...{Colors.RESET}")
     df = pd.DataFrame(results)
-    df.to_csv(OUTPUT_FILE, index=False)
-    print(f"{Colors.GREEN}✅ SUCCESS: Pipeline run complete. Structured file saved to: {OUTPUT_FILE}{Colors.RESET}\n")
+    
+    # Save as CSV
+    df.to_csv(OUTPUT_CSV, index=False)
+    
+    # Save as JSON (Pretty-printed records)
+    df.to_json(OUTPUT_JSON, orient="records", indent=4, force_ascii=False)
+    
+    print(f"{Colors.GREEN}✅ SUCCESS: Pipeline run complete.{Colors.RESET}")
+    print(f"      -> CSV saved to: {OUTPUT_CSV}")
+    print(f"      -> JSON saved to: {OUTPUT_JSON}\n")
 
 if __name__ == "__main__":
     main()
