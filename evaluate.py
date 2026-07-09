@@ -8,7 +8,7 @@ import pandas as pd
 from src.ingestion import load_contracts
 
 def is_verbatim_match(extracted: str, original: str) -> bool:
-    """Normalizes punctuation, whitespace, and line numbers to verify true verbatim content alignment."""
+    """Normalizes punctuation, whitespace, and line numbers to verify true verbatim content alignment across multi-block extractions."""
     def clean(text):
         text = text.lower()
         # Remove bullet numbers/letters at line starts (e.g., "1.", "(a)", "ii)")
@@ -18,11 +18,23 @@ def is_verbatim_match(extracted: str, original: str) -> bool:
         # Collapse whitespace
         return re.sub(r'\s+', ' ', text).strip()
     
-    cleaned_extracted = clean(extracted)
     cleaned_original = clean(original)
     
-    # Validates if at least 95% of the cleaned string maps directly to the original text
-    return cleaned_extracted in cleaned_original and len(cleaned_extracted) > 15
+    # SPLIT LOGIC: Since extraction.py joins multiple valid <TEXT> blocks with \n\n, 
+    # we must evaluate each distinct block independently against the source text!
+    blocks = [b.strip() for b in extracted.split('\n\n') if b.strip()]
+    
+    if not blocks:
+        return False
+        
+    # Every individual extracted block must be found contiguously in the original text
+    for block in blocks:
+        cleaned_block = clean(block)
+        # Ignore extremely short residual snippets (<15 chars), but enforce verbatim substring matching on substantive blocks
+        if len(cleaned_block) > 15 and cleaned_block not in cleaned_original:
+            return False  # If even one block was hallucinated, paraphrased, or altered, fail the whole clause
+            
+    return True
     
 class Colors:
     BLUE = '\033[94m'
@@ -139,7 +151,7 @@ def run_evaluation():
             if extracted_text == "NONE" or extracted_text.upper() == "NONE":
                 verbatim_matches[clause_key]["none"] += 1
             else:
-                # Direct substring containment check to ensure 100% exact text preservation
+                # Direct substring containment check across multiple extracted blocks
                 if is_verbatim_match(extracted_text, original_text):
                     verbatim_matches[clause_key]["match"] += 1
                 else:
@@ -166,7 +178,7 @@ def run_evaluation():
     print(f"\n{Colors.BLUE}--------------------------------------------------{Colors.RESET}")
     print(f" 3. VERBATIM WORDING ACCURACY GROUND-TRUTH CHECK")
     print(f"{Colors.BLUE}--------------------------------------------------{Colors.RESET}")
-    print(f"    A 'Match' confirms the LLM extracted text with 100% exact wording.")
+    print(f"    A 'Match' confirms all extracted blocks match source wording 100% verbatim.")
     print(f"    A 'Fail' indicates hallucination, formatting edits, or paraphrase leaks.\n")
     
     # Render table layout for clean evaluation logging

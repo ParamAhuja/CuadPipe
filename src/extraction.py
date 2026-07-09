@@ -25,17 +25,18 @@ class LLMExtractor:
             token=hf_token
         )
         
-        # Globally locked to 512 tokens across the entire pipeline
+        # Default ceiling set to 1024 to accommodate massive legal clauses without truncation
         self.pipe = pipeline(
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            max_new_tokens=512,  
+            max_new_tokens=1024,  
             temperature=0.1,  
             return_full_text=False
         )
         
-        self.chunk_size = 4000
+        # Upgraded to 6000 to reduce total chunk overhead and accelerate batch execution times
+        self.chunk_size = 6000
         self.overlap = 250
         
     def _chunk_tokens(self, tokens: list) -> list:
@@ -70,8 +71,8 @@ class LLMExtractor:
                     
         return True
 
-    def _run_inference(self, system_instruction: str, user_content: str, max_tokens: int = 512) -> str:
-        """Executes targeted inference with strict 512-token budgets and clean XML tag parsing."""
+    def _run_inference(self, system_instruction: str, user_content: str, max_tokens: int = 1024) -> str:
+        """Executes targeted inference, parsing multiple potential XML tag blocks robustly."""
         messages = [
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": user_content}
@@ -82,17 +83,27 @@ class LLMExtractor:
             
         result = outputs[0]["generated_text"].strip()
         
-        # Strip markdown code block wrappings if the model injects them
+        # Strip markdown code blocks if the model injects them
         if result.startswith("```"):
             result = re.sub(r"^```[a-zA-Z]*\n?|```$", "", result).strip()
             
-        # Grab exact text inside <TEXT>...</TEXT> tags
-        tag_match = re.search(r"<TEXT>(.*?)</TEXT>", result, re.DOTALL | re.IGNORECASE)
-        if tag_match:
-            result = tag_match.group(1).strip()
+        # MULTI-TAG PARSING: Find all instances of <TEXT>...</TEXT> or <TXT>...</TXT>
+        matches = re.findall(r"<T[E]?XT>(.*?)</T[E]?XT>", result, re.DOTALL | re.IGNORECASE)
+        
+        if matches:
+            # Clean and filter matches, discarding empty blocks or accidental "NONE" markers inside strings
+            cleaned_matches = [m.strip() for m in matches if m.strip()]
+            if len(cleaned_matches) == 1:
+                result = cleaned_matches[0]
+            elif len(cleaned_matches) > 1:
+                # If "NONE" is part of multiple blocks by mistake, prioritize actual content blocks
+                actual_content = [m for m in cleaned_matches if m.upper() != "NONE"]
+                result = "\n\n".join(actual_content) if actual_content else "NONE"
+            else:
+                result = "NONE"
         else:
-            # If tags were dropped, just strip dangling tags cleanly without guessing
-            result = re.sub(r"</?TEXT>", "", result, flags=re.IGNORECASE).strip()
+            # Fallback block cleanup if the model strips tags but outputs content
+            result = re.sub(r"</?T[E]?XT>", "", result, flags=re.IGNORECASE).strip()
             
         del outputs
         del messages
@@ -105,38 +116,61 @@ class LLMExtractor:
         tokens = self.tokenizer.encode(contract_text)
         chunks = self._chunk_tokens(tokens)
         
-        print(f"      [Info] Sliced into {len(chunks)} chunk(s). Running 4 targeted passes per chunk (512 tokens max)...")
+        print(f"      [Info] Sliced into {len(chunks)} chunk(s). Running passes (Summary: 512 max | Clauses: 1024 max)...")
         
         prompts = {
             "summary": (
-                "You are an expert legal analyst. Provide a professional, thorough summary of the provided contract chunk. "
-                "Synthesize any core business purpose, key obligations, OR financial terms present in this chunk into cohesive, readable paragraphs. "
-                "Write clean prose without excessive bolding, markdown formatting, or bulleted lists."
+                "You are an expert legal AI. Summarize the provided contract chunk accurately and concisely. "
+                "Use only the information explicitly stated in the chunk. Do not infer, assume, or invent details from other parts of the contract. "
+                "When present, include the purpose of the clause, key obligations, rights, responsibilities, important conditions or exceptions, deadlines, confidentiality provisions, termination terms, liabilities, risks, or penalties. "
+                "If the chunk contains definitions or boilerplate language, briefly summarize its function. "
+                "Write in clear, professional prose without markdown."
             ),
             "termination_clause": (
-                "You are a precise legal data extraction tool. Extract the EXACT verbatim text span from the contract "
-                "that defines WHEN and HOW either party may terminate or end the agreement.\n\n"
-                "STRICT OUTPUT STRUCTURE:\n"
-                "1. VERBATIM COPY ONLY: Copy the text character-for-character from the source. Do not paraphrase or alter text.\n"
-                "2. NEGATIVE CONSTRAINT: DO NOT extract 'Effects of Termination', survival rules, or post-termination logistics (like returning property).\n"
-                "3. TAG WRAPPING: You MUST wrap your exact verbatim extraction inside <TEXT> and </TEXT> tags. Do not write introductory headings or labels outside the tags.\n"
-                "4. If termination rules are not present in this specific chunk, output exactly: <TEXT>NONE</TEXT>"
+                "You are a legal text extraction system.\n\n"
+                "Task:\n"
+                "Locate and extract the exact contiguous text span(s) from the provided contract chunk that define when, why, or how either party may terminate, cancel, or end the agreement.\n\n"
+                "Extraction Rules:\n"
+                "1. Copy the text exactly as it appears in the source.\n"
+                "2. The extracted text must be an exact substring of the input.\n"
+                "3. Do NOT paraphrase, rewrite, summarize, correct grammar, or modify punctuation, capitalization, spacing, or wording.\n"
+                "4. Extract only contiguous text. Never remove or rewrite individual sentences from within an extracted passage.\n"
+                "5. Do NOT include sections whose primary purpose is only the effects of termination, survival clauses, or post-termination obligations (such as return of property), unless they are inseparable from the termination provision within the same contiguous clause.\n"
+                "6. If multiple separate termination provisions appear in this chunk, return each in its own <TEXT>...</TEXT> block.\n\n"
+                "Output Rules:\n"
+                "- Output ONLY <TEXT>...</TEXT> blocks.\n"
+                "- Do NOT include headings, labels, explanations, markdown, or any other text.\n"
+                "- If no termination provision exists in this chunk, output exactly: <TEXT>NONE</TEXT>"
             ),
             "confidentiality_clause": (
-                "You are a precise legal data extraction tool. Extract the EXACT verbatim text span defining "
-                "Confidentiality obligations, non-disclosure terms, or proprietary information protection.\n\n"
-                "STRICT OUTPUT STRUCTURE:\n"
-                "1. VERBATIM COPY ONLY: Copy the text character-for-character from the source. Do not paraphrase or alter text.\n"
-                "2. TAG WRAPPING: You MUST wrap your exact verbatim extraction inside <TEXT> and </TEXT> tags. Do not write introductory headings or labels outside the tags.\n"
-                "3. If confidentiality terms are not present in this specific chunk, output exactly: <TEXT>NONE</TEXT>"
+                "You are a legal text extraction system.\n\n"
+                "Task:\n"
+                "Locate and extract the exact contiguous text span(s) from the provided contract chunk that define confidentiality obligations, non-disclosure obligations, confidential information, proprietary information, trade secrets, or restrictions on the use or disclosure of protected information.\n\n"
+                "Extraction Rules:\n"
+                "1. Copy the text exactly as it appears in the source.\n"
+                "2. The extracted text must be an exact substring of the input.\n"
+                "3. Do NOT paraphrase, rewrite, summarize, correct grammar, or modify punctuation, capitalization, spacing, or wording.\n"
+                "4. Extract only contiguous text. Never remove or rewrite individual sentences from within an extracted passage.\n"
+                "5. If multiple separate confidentiality provisions appear in this chunk, return each in its own <TEXT>...</TEXT> block.\n\n"
+                "Output Rules:\n"
+                "- Output ONLY <TEXT>...</TEXT> blocks.\n"
+                "- Do NOT include headings, labels, explanations, markdown, or any other text.\n"
+                "- If no confidentiality provision exists in this chunk, output exactly: <TEXT>NONE</TEXT>"
             ),
             "liability_clause": (
-                "You are a precise legal data extraction tool. Extract the EXACT verbatim text span defining "
-                "Limitations of Liability, indemnification rules, damages caps, or liability exclusions.\n\n"
-                "STRICT OUTPUT STRUCTURE:\n"
-                "1. VERBATIM COPY ONLY: Copy the text character-for-character from the source. Do not paraphrase or alter text.\n"
-                "2. TAG WRAPPING: You MUST wrap your exact verbatim extraction inside <TEXT> and </TEXT> tags. Do not write introductory headings or labels outside the tags.\n"
-                "3. If liability terms are not present in this specific chunk, output exactly: <TEXT>NONE</TEXT>"
+                "You are a legal text extraction system.\n\n"
+                "Task:\n"
+                "Locate and extract the exact contiguous text span(s) from the provided contract chunk that define limitations of liability, exclusions of liability, indemnification, hold harmless obligations, damages limitations, liability caps, or exclusions of specific types of damages.\n\n"
+                "Extraction Rules:\n"
+                "1. Copy the text exactly as it appears in the source.\n"
+                "2. The extracted text must be an exact substring of the input.\n"
+                "3. Do NOT paraphrase, rewrite, summarize, correct grammar, or modify punctuation, capitalization, spacing, or wording.\n"
+                "4. Extract only contiguous text. Never remove or rewrite individual sentences from within an extracted passage.\n"
+                "5. If multiple separate liability provisions appear in this chunk, return each in its own <TEXT>...</TEXT> block.\n\n"
+                "Output Rules:\n"
+                "- Output ONLY <TEXT>...</TEXT> blocks.\n"
+                "- Do NOT include headings, labels, explanations, markdown, or any other text.\n"
+                "- If no liability provision exists in this chunk, output exactly: <TEXT>NONE</TEXT>"
             )
         }
         
@@ -149,25 +183,25 @@ class LLMExtractor:
             safe_text = self.tokenizer.decode(chunk_tokens, skip_special_tokens=True)
             user_prompt = f"CONTRACT TEXT CHUNK:\n\n{safe_text}\n\nExecute the extraction task strictly following your instructions."
             
-            # Pass 1: Summary (Locked to 512 tokens)
+            # Pass 1: Summary (Locked to 512 tokens for concise narrative density)
             sum_text = self._run_inference(prompts["summary"], user_prompt, max_tokens=512)
             if sum_text and len(sum_text) > 20:
                 chunk_summaries.append(f"**Section {chunk_idx + 1}:**\n{sum_text}")
                 
-            # Pass 2: Termination Clause (Locked to 512 tokens)
-            term_text = self._run_inference(prompts["termination_clause"], user_prompt, max_tokens=512)
+            # Pass 2: Termination Clause (Locked to 1024 tokens to prevent truncation of long provisions)
+            term_text = self._run_inference(prompts["termination_clause"], user_prompt, max_tokens=1024)
             if self._is_valid_clause(term_text):
                 if best_termination == "NONE" or len(term_text) > len(best_termination):
                     best_termination = term_text
                     
-            # Pass 3: Confidentiality Clause (Locked to 512 tokens)
-            conf_text = self._run_inference(prompts["confidentiality_clause"], user_prompt, max_tokens=512)
+            # Pass 3: Confidentiality Clause (Locked to 1024 tokens)
+            conf_text = self._run_inference(prompts["confidentiality_clause"], user_prompt, max_tokens=1024)
             if self._is_valid_clause(conf_text):
                 if best_confidentiality == "NONE" or len(conf_text) > len(best_confidentiality):
                     best_confidentiality = conf_text
                     
-            # Pass 4: Liability Clause (Locked to 512 tokens)
-            liab_text = self._run_inference(prompts["liability_clause"], user_prompt, max_tokens=512)
+            # Pass 4: Liability Clause (Locked to 1024 tokens)
+            liab_text = self._run_inference(prompts["liability_clause"], user_prompt, max_tokens=1024)
             if self._is_valid_clause(liab_text):
                 if best_liability == "NONE" or len(liab_text) > len(best_liability):
                     best_liability = liab_text
