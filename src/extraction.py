@@ -35,8 +35,7 @@ class LLMExtractor:
             return_full_text=False
         )
         
-        # Upgraded to 6000 to reduce total chunk overhead and accelerate batch execution times
-        self.chunk_size = 6000
+        self.chunk_size = 4000
         self.overlap = 250
         
     def _chunk_tokens(self, tokens: list) -> list:
