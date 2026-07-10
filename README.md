@@ -221,35 +221,7 @@ where window size $W = 4000$ tokens and overlap $O = 250$ tokens.
 * **Why 4000 Tokens?** Fits comfortably inside Llama 3.1's native context window while leaving ample headroom for system instructions and output generation buffers.
 * **Why 250 Tokens Overlap?** Legal clauses often span across paragraph breaks or page boundaries. A 250-token overlap ensures that if a critical sentence sits right at the edge of a window cut, the entire clause is fully captured intact inside the subsequent chunk.
 
-## 8. Evaluation Methodology & Reproduction
-
-Standard NLP evaluation metrics (like exact string matching or unigram BLEU) fail catastrophically when evaluating LLM legal extractions due to minor formatting shifts.
-
-To evaluate true ground-truth accuracy without penalizing the model for whitespace or bullet standardization, `evaluate.py` passes both the source PDF plaintext and the generated CSV strings through a **Verbatim Truth Normalizer**:
-
-To run the standalone diagnostic suite, simply run:
-
-```bash
-python evaluate.py
-```
-
-<!--
-## 9. Benchmark Analysis: Architecture Comparison
-
-This table documents the empirical performance progression of `cuadpipe` across our architectural iterations on the CUAD benchmark dataset (50 contracts, NVIDIA T4 GPU).
-
-| Metric / Dimension | Iteration 1: All-at-Once JSON(`max_tokens=512`) | Iteration 2: Targeted Single-Pass(`max_tokens=768`) | Engineering Analysis & Takeaways |
-| --- | --- | --- | --- |
-| **Total Runtime (50 Docs)** | ~12 Minutes | ~38 Minutes | 4x separate passes increase sequential compute overhead, trading speed for absolute compliance fidelity. |
-| **Avg. Summary Length** | ~480 Characters | ~1,650 Characters | Dedicating 768 tokens solely to summary generation unlocks comprehensive, multi-paragraph syntheses. |
-| **Termination Match %** | *[Insert Your Score - e.g., 42%]* | *[Insert Your Score - e.g., 92%]* | Negative constraints eliminate "Effects of Termination" boilerplate errors; full budget stops truncation. |
-| **Confidentiality Match %** | *[Insert Your Score - e.g., 68%]* | *[Insert Your Score - e.g., 96%]* | Single-target focus prevents attention dilution, ensuring capture of non-disclosure definitions. |
-| **Liability Match %** | *[Insert Your Score - e.g., 55%]* | *[Insert Your Score - e.g., 94%]* | Length-maximization aggregation ensures capture of master liability caps over passing mentions. |
-| **Data Compression Ratio** | ~1.2% of original text | ~4.5% of original text | Higher compression footprint reflects capture of complete verbatim clauses rather than truncated snippets. |
-| **JSON Serialization Errors** | High (~15% crash rate) | **0% (Zero Crashes)** | Removing JSON format wrappers stops unescaped quotation marks from crashing Python parsers. |
-
--->
-## 9. Real-World Failures Found & Solutions Implemented:
+## 8. Real-World Failures Found & Solutions Implemented:
 
 During pipeline development and visual ground-truth inspection against raw PDFs, I uncovered 6 distinct failure modes that break standard LLM extractors. Here is how `cuadpipe` systematically engineers around each one:
 

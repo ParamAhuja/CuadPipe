@@ -6,7 +6,6 @@ data/contracts/
 *.gz
 
 # Ignore pipeline output artifacts and logs
-extraction_results.csv
 *.log
 
 # Python & Virtual Environments
