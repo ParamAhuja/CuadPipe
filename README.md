@@ -9,19 +9,21 @@ A local-first document AI pipeline that extracts verbatim legal clauses and gene
 ### Problem Understanding: 
 Contract review is a task about "finding needles in a haystack.", requiring lawyers to spend hours or sometimes days reading through legal documents for scarce key clauses that matters for clients, buried among details often spanning large number of pages. Which is also subject to human error!
 
-For our use case including 3 key clauses "termination_clause", "confidentiality_clause" and "liability_clause", it was found that only **about 16.28%** of the text was actually relevant. **That's only 16 pages of useful info in a 100 page pdf!**
+For our use case including 3 key clauses "termination_clause", "confidentiality_clause" and "liability_clause", it was found that only **about 3.57%** of the text was actually relevant. **That's only 3.5 pages of useful info in a 100 page pdf!**
 
-Extracting exact, verbatim legal clauses from long-form commercial agreements requires a fundamental understanding: **probabilistic language models want to generate fluent prose, but legal compliance requires strict, deterministic copy-pasting.**
+Using LLMs to extract verbatim legal clauses from long-form commercial agreements has a few fundamental **problems**: 
+- probabilistic language models want to generate fluent prose, but legal compliance requires strict, deterministic copy-pasting.
+- Furthermore, the size of the documents could span to a large number of pages. Analyzed in [Section 7](#7-handling-large-texts-context-eda--windowing-strategy).
 
 ### My solution: 
 `cuadpipe` resolves this by using **Exhaustive Targeted-Pass Map-Aggregate Architecture**. By breaking document analysis into isolated, chunks of text using overlapping context windows, the engine achieves:
 
-* **100% Document Coverage:** Eliminates retrieval blindspots common in standard RAG pipelines.
-* **Verbatim Fidelity:** Strips conversational formatting artifacts to guarantee character-for-character legal accuracy.
-* **Zero API Dependency:** Runs entirely locally on consumer GPUs (e.g., 2x NVIDIA T4 on kaggle was used here) via 4-bit NormalFloat quantization.
-* **Deterministic Reproducibility:** Features built-in seeded dataset bootstrapping (`seed=42`) for robust cross-environment benchmarking and batch execution.
+* 100% Document Coverage:
+* Verbatim Fidelity:
+* Zero API Dependency:
+* Deterministic Reproducibility:
 
-## 2. System Architecture & Pipeline Flow
+## 2. System Architecture:
 
 <img width="2458" height="2347" alt="mermaid-diagram-2026-07-09-123134" src="https://github.com/user-attachments/assets/5233b714-787a-4127-8d22-c5abaf41ce63" />
 
@@ -29,16 +31,18 @@ Extracting exact, verbatim legal clauses from long-form commercial agreements re
 
 ```text
 cuadpipe/
-├── plots/                         # exploratory data analysis visuals
-├── src/                           # Inference engine, ingestion logic, and utilities
+├── plots/                         # EDA visuals
+├── src/                           
+    ├── extraction.py                   # main extraction logic
+    └── helper files                    # data ingestion, eda, utilities
 ├── .gitignore
-├── LICENSE                        # Project license
-├── README.md                      # this file
+├── LICENSE                        
+├── README.md                      
 ├── cuadpipe.ipynb                 # complete notebook for pipeline execution and evaluation
 ├── extraction_results.csv         # Final merged CSV output of structured extractions
 ├── extraction_results.json        # Final merged JSON output of structured extractions
 ├── main.py                        # main execution driver, hardware check, and batch controller
-└── requirements.txt               # dependencies for reproducible environments
+└── requirements.txt               
 ```
 ### Project Flow: 
 1. **Ingest & Normalize (ingestion.py):** Upload PDFs locally or automatically from Zenodo in data/contracts. It also normalizes layout into raw plaintext cache.
@@ -167,26 +171,19 @@ Running an 16-bit (`float16` or `bfloat16`) 8B model requires **~16 GB of raw VR
 * `max_nex_tokens = 768`: length analysis was done for required output and 768 was determined to be sufficient.
 
 
-## 6. Output structure and the "NONE" output Advantage - 
+6. Output Determinism & Hallucination Control
+A core innovation in cuadpipe is treating model refusal as a verifiable classification signal while locking down generative probabilities to prevent autoregressive degeneration.
 
-<img width="1284" height="167" alt="image" src="https://github.com/user-attachments/assets/bd50ebfd-e067-4259-b28f-8789ea512def" />
+To enforce strict structured outputs, our system prompts combine Negative Semantic Constraints with targeted XML boundaries:
 
-A core innovation in `cuadpipe` is adding negative constraints and treating model refusal not as an error, but as a **verifiable classification signal**.
+Plaintext
+1. The extracted text MUST be a 100% perfect substring of the input.
+2. NEGATIVE CONSTRAINT: Do NOT include sections whose primary purpose is only the effects of termination, survival clauses, or post-termination obligations...
+3. If no provision exists in this chunk, output exactly: <TEXT>NONE</TEXT>
+The Engineering Advantages
+Eliminates False-Positive Boilerplate: Commercial contracts frequently use keywords like "terminate" in non-substantive contexts. By explicitly instructing the model to reject post-termination logistics, we force NONE outputs on boilerplate, isolating only the active master clauses.
 
-In naive extraction pipelines, if a chunk does not contain a Termination clause, the LLM often hallucinates a generic explanation or attempts to summarize whatever text is present. To prevent this, our prompts enforce **Negative Semantic Constraints**:
-
-```text
-STRICT RULES:
-1. VERBATIM COPY ONLY: Copy the text character-for-character. Do not paraphrase.
-2. NEGATIVE CONSTRAINT: DO NOT extract 'Effects of Termination', survival rules, or post-termination logistics (like returning property or final billing).
-3. NO POINTERS: Do not output 'See Section 10'. If the actual termination rules are not in this chunk, output exactly: NONE
-
-```
-
-### Why This Is an Advantage
-
-1. **Eliminates False-Positive Boilerplate:** In commercial contracts, the word *"terminate"* appears dozens of times in non-substantive contexts (e.g., *"Upon termination, receiving party shall return all laptops"*). By explicitly instructing the model to reject post-termination logistics, we force it to output `NONE` on boilerplate chunks, reserving positive extractions strictly for the master clause defining *when and how* termination can be triggered.
-2. **Automates Noise Filtering:** Our extraction engine runs a regex validation layer (`_is_valid_clause`) that traps informal conversational refusals (e.g., *"Not present in this text,"* *"No clause found,"* or *"See Section 5"*) and normalizes them to clean `NONE` strings. This ensures downstream databases receive pristine structured data.
+Automated Regex Normalization: A validation layer (_is_valid_clause) intercepts edge-case conversational refusals (e.g., "Not present in this text" or "See Section 5") and normalizes them into clean NONE strings, ensuring pristine downstream data ingestion without markdown leaks.
 
 
 ## 7. Handling Large Texts: Context EDA & Windowing Strategy

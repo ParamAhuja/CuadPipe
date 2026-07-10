@@ -36,7 +36,7 @@ class LLMExtractor:
             model=self.model,
             tokenizer=self.tokenizer,
             max_new_tokens=1024,  
-            temperature=0.1,  
+            do_sample=False,  # <--- THE SILVER BULLET: Disables random sampling to stop token-repetition loops
             return_full_text=False
         )
         
@@ -83,7 +83,7 @@ class LLMExtractor:
         ]
         
         with torch.no_grad():
-            # Apply terminators to stop the 1024 token limit from dragging on empty NONE chunks
+            # Apply terminators to stop the token limit from dragging on empty NONE chunks
             outputs = self.pipe(
                 messages, 
                 max_new_tokens=max_tokens,
@@ -121,19 +121,19 @@ class LLMExtractor:
         
         prompts = {
             "summary": (
-                "You are an expert legal AI. Summarize the provided contract chunk accurately and concisely. "
-                "Use only the information explicitly stated in the chunk. Do not infer, assume, or invent details from other parts of the contract. "
-                "When present, include the purpose of the clause, key obligations, rights, responsibilities, important conditions or exceptions, deadlines, confidentiality provisions, termination terms, liabilities, risks, or penalties. "
-                "If the chunk contains definitions or boilerplate language, briefly summarize its function. "
-                "Write in clear, professional prose without markdown."
+                "You are an expert legal AI. Provide a highly condensed, brief abstract of the provided contract chunk. "
+                "STRICT LENGTH LIMIT: Your summary MUST be 3 to 4 sentences maximum. "
+                "Use only the explicitly stated core business purpose, key obligations, or financial terms. "
+                "STRICT FORMATTING RULE: Write ONLY in a single, continuous paragraph. You are strictly forbidden from using bullet points, numbered lists, or bold text. "
+                "Do not include introductory filler or list minor boilerplate details."
             ),
             "termination_clause": (
                 "You are a legal text extraction system.\n\n"
                 "Task:\n"
                 "Locate and extract the primary, contiguous text span from the provided contract chunk that defines when, why, or how either party may terminate, cancel, or end the agreement.\n\n"
                 "Extraction Rules:\n"
-                "1. Copy the text exactly as it appears in the source.\n"
-                "2. The extracted text must be an exact substring of the input.\n"
+                "1. Copy the text EXACTLY as it appears in the source, character-for-character.\n"
+                "2. The extracted text MUST be a 100% perfect substring of the input.\n"
                 "3. Do NOT paraphrase, rewrite, summarize, correct grammar, or modify punctuation, capitalization, spacing, or wording.\n"
                 "4. Extract only contiguous text. Never remove or rewrite individual sentences from within an extracted passage.\n"
                 "5. Do NOT include sections whose primary purpose is only the effects of termination, survival clauses, or post-termination obligations (such as return of property), unless they are inseparable from the termination provision within the same contiguous clause.\n\n"
@@ -147,8 +147,8 @@ class LLMExtractor:
                 "Task:\n"
                 "Locate and extract the primary, contiguous text span from the provided contract chunk that defines confidentiality obligations, non-disclosure obligations, confidential information, proprietary information, trade secrets, or restrictions on the use or disclosure of protected information.\n\n"
                 "Extraction Rules:\n"
-                "1. Copy the text exactly as it appears in the source.\n"
-                "2. The extracted text must be an exact substring of the input.\n"
+                "1. Copy the text EXACTLY as it appears in the source, character-for-character.\n"
+                "2. The extracted text MUST be a 100% perfect substring of the input.\n"
                 "3. Do NOT paraphrase, rewrite, summarize, correct grammar, or modify punctuation, capitalization, spacing, or wording.\n"
                 "4. Extract only contiguous text. Never remove or rewrite individual sentences from within an extracted passage.\n\n"
                 "Output Rules:\n"
@@ -161,8 +161,8 @@ class LLMExtractor:
                 "Task:\n"
                 "Locate and extract the primary, contiguous text span from the provided contract chunk that defines limitations of liability, exclusions of liability, indemnification, hold harmless obligations, damages limitations, liability caps, or exclusions of specific types of damages.\n\n"
                 "Extraction Rules:\n"
-                "1. Copy the text exactly as it appears in the source.\n"
-                "2. The extracted text must be an exact substring of the input.\n"
+                "1. Copy the text EXACTLY as it appears in the source, character-for-character.\n"
+                "2. The extracted text MUST be a 100% perfect substring of the input.\n"
                 "3. Do NOT paraphrase, rewrite, summarize, correct grammar, or modify punctuation, capitalization, spacing, or wording.\n"
                 "4. Extract only contiguous text. Never remove or rewrite individual sentences from within an extracted passage.\n\n"
                 "Output Rules:\n"
@@ -181,7 +181,7 @@ class LLMExtractor:
             safe_text = self.tokenizer.decode(chunk_tokens, skip_special_tokens=True)
             user_prompt = f"CONTRACT TEXT CHUNK:\n\n{safe_text}\n\nExecute the extraction task strictly following your instructions."
             
-            # Pass 1: Summary (Locked to 512 max)
+            # Pass 1: Summary (Locked to 512 max to prevent generation overruns)
             sum_text = self._run_inference(prompts["summary"], user_prompt, max_tokens=512)
             if sum_text and len(sum_text) > 20:
                 chunk_summaries.append(f"**Section {chunk_idx + 1}:**\n{sum_text}")
