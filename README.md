@@ -7,7 +7,7 @@ A local-first document AI pipeline that extracts verbatim legal clauses and gene
 ### Problem Understanding: 
 Contract review is a task about "finding needles in a haystack.", requiring lawyers to spend hours or sometimes days reading through legal documents for scarce key clauses that matters for clients, buried among details often spanning large number of pages. Which is also subject to human error!
 
-For our use case including 3 key clauses "termination_clause", "confidentiality_clause" and "liability_clause", it was found that only **about 0.54%** of the text was actually relevant. **That's about half a page of useful info in a 100 page pdf!**
+For our use case including 3 key clauses "termination_clause", "confidentiality_clause" and "liability_clause", it was found that only **about 16.28%** of the text was actually relevant. **That's only 16 pages of useful info in a 100 page pdf!**
 
 Extracting exact, verbatim legal clauses from long-form commercial agreements requires a fundamental understanding: **probabilistic language models want to generate fluent prose, but legal compliance requires strict, deterministic copy-pasting.**
 
@@ -27,21 +27,16 @@ Extracting exact, verbatim legal clauses from long-form commercial agreements re
 
 ```text
 cuadpipe/
-├── data/
-│   └── contracts/                 # Target directory for PDF agreements (auto-populated via Zenodo fallback)
 ├── plots/                         # Generated token distribution and exploratory visual diagnostics
-├── src/
-│   ├── __init__.py
-│   ├── eda.py                     # Standalone dataset statistical analysis and token histogram generator
-│   ├── ingestion.py               # Layout-aware PDF normalization and plaintext memory caching
-│   ├── extraction.py              # 4-bit Llama 3.1 inference engine, window slicer, and targeted prompt library
-│   └── utils.py                   # Pydantic data schemas and serialization formatting utilities
+├── src/                           # Inference engine, ingestion logic, and utilities
 ├── .gitignore
-├── evaluate.py                    # Standalone verbatim truth normalizer and automated benchmark reporting
-├── main.py                        # Primary pipeline execution driver, hardware check, and batch controller
-├── requirements.txt               # Pinned Python package dependencies for reproducible environments
-└── README.md                      # Master project documentation and architectural whitepaper
-
+├── LICENSE                        # Project license
+├── README.md                      # Master project documentation and architectural whitepaper
+├── cuadpipe.ipynb                 # Interactive notebook for pipeline execution and evaluation
+├── extraction_results.csv         # Final merged CSV output of structured extractions
+├── extraction_results.json        # Final merged JSON output of structured extractions
+├── main.py                        # main execution driver, hardware check, and batch controller
+└── requirements.txt               # Python package dependencies for reproducible environments
 ```
 ### Project Flow: 
 1. **Ingest & Normalize (ingestion.py):** Upload PDFs locally or automatically from Zenodo in data/contracts. It also normalizes layout into raw plaintext cache.
@@ -51,8 +46,6 @@ cuadpipe/
 - Summaries: Chronologically stitched section-by-section.
 - Clauses: Aggregated using a length-maximization (max(len)) strategy to discard minor mentions and lock onto the primary master clause.
 5. **Serialization:** Structured outputs are written simultaneously to extraction_results.csv and a pretty-printed extraction_results.json.
-6. **Evaluation (evaluate.py):** Validates exact text match against original PDFs to accurately gauge verbatim containment and also do length comparison between input and output.
-
 
 
 ## 3. Setup & Installation Guide
@@ -65,7 +58,7 @@ cuadpipe/
 * **CUDA:** Version 11.8 or 12.1+.
 * **Python:** Version 3.10 or 3.11.
 
-### 1. Kaggle Notebook Setup (COMPLETE CODE IN NOTEBOOK GIVEN)
+### 1. Kaggle Notebook Setup (COMPLETE CODE IN NOTEBOOK GIVEN - cuadpipe.ipynb)
 
 For running the entire pipeline on kaggle, download the original notebook and upload on kaggle.
 `cuadpipe` natively supports Kaggle's dual-T4 or single-T4 GPU accelerators.
@@ -143,9 +136,9 @@ Standard RAG relies on semantic cosine similarity between the user's query and c
 
 | Architectural Dimension | Exhaustive Map-Aggregate (`cuadpipe`) | Standard RAG Pipeline |
 | --- | --- | --- |
-| **Recall / Coverage** | **100% Guaranteed** — Every token is evaluated by the LLM reasoning engine. | **70–85% Variable** — Highly dependent on embedding model alignment. |
-| **Verbatim Precision** | **Very High** — Targeted prompts focus 100% attention on one legal concept. | **Moderate** — Retrieved chunks often contain fragmented context boundaries. |
-| **Compute Overhead** | **Heavy** — Requires ~12 inference passes per 3-chunk document. | **Light** — Requires only 3–4 inference passes on top ranked chunks. |
+| **Recall / Coverage** | **100% Guaranteed**: Every token is evaluated by the LLM reasoning engine. | **70–85% Variable**: Highly dependent on embedding model alignment. |
+| **Verbatim Precision** | **Very High**: Targeted prompts focus 100% attention on one legal concept. | **Moderate** — Retrieved chunks often contain fragmented context boundaries. |
+| **Compute Overhead** | **Heavy**: Requires ~12 inference passes per 3-chunk document. | **Light**: Requires only 3–4 inference passes on top ranked chunks. |
 | **Best Use Case** | **Compliance, auditing, and benchmark scoring** where missing a clause is unacceptable. | **High-throughput triage** or conversational chat across thousands of docs. |
 
 ## 5. Tech Stack Justifications and Tradeoffs
