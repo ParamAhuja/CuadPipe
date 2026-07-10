@@ -1,3 +1,5 @@
+contact: `paramahuja04@gmail.com`
+
 # cuadpipe: A VRAM-Optimized Legal Document Extraction Engine
 
 A local-first document AI pipeline that extracts verbatim legal clauses and generate summary for huge documents from complex corporate agreements. Built on top of the [Atticus Project (CUAD)](https://github.com/TheAtticusProject/cuad) benchmark dataset, `cuadpipe` leverages 4-bit quantized **Meta-Llama-3.1-8B-Instruct** with an exhaustive sliding-window Map-Aggregate chunking architecture to achieve maximum recall even on low compute power.
@@ -27,16 +29,16 @@ Extracting exact, verbatim legal clauses from long-form commercial agreements re
 
 ```text
 cuadpipe/
-├── plots/                         # Generated token distribution and exploratory visual diagnostics
+├── plots/                         # exploratory data analysis visuals
 ├── src/                           # Inference engine, ingestion logic, and utilities
 ├── .gitignore
 ├── LICENSE                        # Project license
-├── README.md                      # Master project documentation and architectural whitepaper
-├── cuadpipe.ipynb                 # Interactive notebook for pipeline execution and evaluation
+├── README.md                      # this file
+├── cuadpipe.ipynb                 # complete notebook for pipeline execution and evaluation
 ├── extraction_results.csv         # Final merged CSV output of structured extractions
 ├── extraction_results.json        # Final merged JSON output of structured extractions
 ├── main.py                        # main execution driver, hardware check, and batch controller
-└── requirements.txt               # Python package dependencies for reproducible environments
+└── requirements.txt               # dependencies for reproducible environments
 ```
 ### Project Flow: 
 1. **Ingest & Normalize (ingestion.py):** Upload PDFs locally or automatically from Zenodo in data/contracts. It also normalizes layout into raw plaintext cache.
