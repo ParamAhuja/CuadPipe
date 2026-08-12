@@ -1,5 +1,3 @@
-contact: `paramahuja04@gmail.com`
-
 # cuadpipe: A VRAM-Optimized Legal Document Extraction Engine
 
 A local-first document AI pipeline that extracts verbatim legal clauses and generate summary for huge documents from complex corporate agreements. Built on top of the [Atticus Project (CUAD)](https://github.com/TheAtticusProject/cuad) benchmark dataset, `cuadpipe` leverages 4-bit quantized **Meta-Llama-3.1-8B-Instruct** with an exhaustive sliding-window Map-Aggregate chunking architecture to achieve maximum recall even on low compute power.
